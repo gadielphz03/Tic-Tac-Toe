@@ -37,6 +37,9 @@ import numpy as np  # Importa NumPy para operaciones numéricas y matrices
 import os  # Importa módulo para manejo de sistema operativo y archivos
 import json  # Importa módulo para manejo de datos JSON
 from datetime import datetime  # Importa clase para manejo de fechas y horas
+from reportlab.lib.pagesizes import letter
+from reportlab.pdfgen import canvas
+from io import BytesIO
 ############
 
 RUTA_JUGADAS = 'jugadas.json'  # Cambia si quieres otra ruta
@@ -130,29 +133,54 @@ def login():
     if request.method == "POST":
         username = request.form.get("username")
         password = request.form.get("password")
-
-        # --- IMPORTANT: REPLACE WITH YOUR ACTUAL AUTHENTICATION LOGIC ---
-        if username == "admin" and password == "securepassword": # REMEMBER TO CHANGE THESE!
+        if username == "admin" and password == "securepassword":
             session["logueado"] = True
-            return redirect(url_for("descargar_evaluaciones_json")) # Redirect to the DB download route
+            return redirect(url_for("descargar_evaluaciones_pdf"))
         else:
             error_message = "Credenciales inválidas. Por favor, inténtelo de nuevo."
             return render_template("login.html", error=error_message)
-    return render_template("login.html", error=None) # Pass error=None for initial GET request
-    
-@app.route("/descargar_evaluaciones_json")
-def descargar_evaluaciones_json():
+    return render_template("login.html", error=None)
+
+@app.route("/descargar_evaluaciones_pdf")
+def descargar_evaluaciones_pdf():
     if not session.get("logueado"):
-        return redirect(url_for("login")) # Asegura que solo usuarios logueados puedan descargar
+        return redirect(url_for("login"))
 
-    json_filename = 'evaluaciones.json' # <-- ¡CONFIRMA QUE ESTE ES EL NOMBRE DE TU ARCHIVO JSON!
+    json_filename = "evaluaciones.json"
 
-    try:
-        # Asegúrate de que 'os' y 'send_from_directory' estén importados al inicio de app.py
-        import os # Solo si no lo has importado ya al inicio del archivo
-        return send_from_directory(os.getcwd(), json_filename, as_attachment=True)
-    except FileNotFoundError:
+    if not os.path.exists(json_filename):
         return f"El archivo {json_filename} no se encontró.", 404
+
+    with open(json_filename, "r", encoding="utf-8") as f:
+        data = json.load(f)
+
+    # Crear PDF en memoria
+    pdf_buffer = BytesIO()
+    c = canvas.Canvas(pdf_buffer, pagesize=letter)
+    width, height = letter
+
+    c.setFont("Helvetica-Bold", 16)
+    c.drawString(50, height - 50, "Evaluaciones")
+    c.setFont("Helvetica", 12)
+
+    y = height - 80
+    for idx, item in enumerate(data):
+        linea = f"{idx + 1}. {item.get('criterio', 'Sin criterio')}: {item.get('puntaje', '-')}"
+        c.drawString(50, y, linea)
+        y -= 20
+        if y < 50:
+            c.showPage()
+            y = height - 50
+
+    c.save()
+    pdf_buffer.seek(0)
+
+    return send_file(
+        pdf_buffer,
+        mimetype='application/pdf',
+        as_attachment=True,
+        download_name="evaluaciones.pdf"
+    )
 ##########################################################################
 @app.route("/")
 def index():
